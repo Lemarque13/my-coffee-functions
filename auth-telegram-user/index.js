@@ -1,20 +1,21 @@
+// my-coffee-functions/auth-telegram-user/index.js (Версия для отладки запроса)
+
 const crypto = require('crypto');
 const { Client, Databases, ID, Query, Users } = require('node-appwrite');
 
 module.exports = async ({ req, res, log, error }) => {
-  const client = new Client()
-    .setEndpoint(process.env.APPWRITE_ENDPOINT)
-    .setProject(process.env.APPWRITE_PROJECT_ID)
-    .setKey(process.env.APPWRITE_API_KEY);
+  // --- НАЧАЛО БЛОКА ОТЛАДКИ ---
+  log("Функция запущена.");
+  log(`Тип req.body: ${typeof req.body}`);
+  log(`Содержимое req.body: ${JSON.stringify(req.body)}`);
+  // --- КОНЕЦ БЛОКА ОТЛАДКИ ---
 
-  const databases = new Databases(client);
-  const users = new Users(client);
-
-  if (!req.body.initData) {
-    log('No initData provided');
+  // Проверяем, существует ли initData в теле запроса
+  if (!req.body || !req.body.initData) {
+    error("Ошибка: req.body пустое или не содержит initData.");
     return res.json({ error: 'No initData provided' }, 400);
   }
-
+  
   const initData = new URLSearchParams(req.body.initData);
   const hash = initData.get('hash');
   const userData = JSON.parse(initData.get('user'));
@@ -29,10 +30,18 @@ module.exports = async ({ req, res, log, error }) => {
   const calculatedHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
 
   if (calculatedHash !== hash) {
-    log('Invalid hash attempt');
+    error('Invalid hash');
     return res.json({ error: 'Invalid hash' }, 401);
   }
+  
+  const client = new Client()
+    .setEndpoint(process.env.APPWRITE_ENDPOINT)
+    .setProject(process.env.APPWRITE_PROJECT_ID)
+    .setKey(process.env.APPWRITE_API_KEY);
 
+  const databases = new Databases(client);
+  const users = new Users(client);
+  
   const telegramId = userData.id.toString();
   let appwriteUser;
   let profile;
@@ -46,26 +55,18 @@ module.exports = async ({ req, res, log, error }) => {
     }
 
     const existingProfiles = await databases.listDocuments(
-      process.env.APPWRITE_DATABASE_ID,
-      'profiles',
-      [Query.equal('userId', appwriteUser.$id)]
+      process.env.APPWRITE_DATABASE_ID, 'profiles', [Query.equal('userId', appwriteUser.$id)]
     );
 
     if (existingProfiles.total > 0) {
       profile = existingProfiles.documents[0];
     } else {
       profile = await databases.createDocument(
-        process.env.APPWRITE_DATABASE_ID,
-        'profiles',
-        ID.unique(),
-        {
-          userId: appwriteUser.$id,
-          userName: userData.first_name,
-          cashbackBalance: 0,
-        }
+        process.env.APPWRITE_DATABASE_ID, 'profiles', ID.unique(),
+        { userId: appwriteUser.$id, userName: userData.first_name, cashbackBalance: 0 }
       );
     }
-
+    
     const session = await users.createSession(appwriteUser.$id);
 
     return res.json({
@@ -75,8 +76,7 @@ module.exports = async ({ req, res, log, error }) => {
     });
 
   } catch (e) {
-    error(e.message);
+    error(`Критическая ошибка выполнения: ${e.message}`);
     return res.json({ error: e.message }, 500);
   }
 };
-// test commit
